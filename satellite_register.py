@@ -2,8 +2,7 @@ __author__ = 'scott.a.clark'
 
 import logging
 from optparse import OptionParser
-from currenthost import CurrentHost, CurrentHostException
-from satelliteyum import SatelliteYum
+import satellite
 from subprocess import call
 
 
@@ -15,20 +14,18 @@ def util_capture_options():
     logging.debug("captureCommandLine")
     # parser.add_option("-a", "--application", dest="application",
     #                   help="three-letter customer code (optional)")
-    parser.add_option("--activationkey", dest="activationkey",
-                      help="Satellite Organization in which to register Current Host")
-    parser.add_option("--capsule", dest="mycapsule",
-                      help="Satellite Capsule that serves Current Host [Default: Main Satellite]")
-    parser.add_option("--environment", dest="environment",
-                      help="Lifecycle Environment in which to place Current Host")
-    parser.add_option("--location", dest="location",
+    parser.add_option("-a", "--activationkey", metavar="KEY",
+                      help="Register to Capsule using activation key KEY")
+    parser.add_option("-e", "--environment", metavar="LCE",
+                      help="Lifecycle Environment in which to place Current Host (Activation Key overrides this)")
+    parser.add_option("-l", "--location", metavar="LOC",
                       help="Location of Host")
-    parser.add_option("--org", dest="organization",
-                      help="Satellite Organization in which to register Current Host")
-    parser.add_option("-y", "--yes", action="store_true", dest="yes",
-                      help="Run script without any user interaction")
-    parser.add_option("-h", "-?", "--help", action="store_true", dest="help",
-                      help="Print usage statement")
+    parser.add_option("-o", "--organization", metavar="ORG",
+                      help="Satellite Organization in which to register Current Host [REQUIRED]")
+    parser.add_option("-c", "--hostcollection", action="append", metavar="HC",
+                      help="Additional host collections to associate (may be specified more than once)")
+    parser.add_option("--skip-install", action="store_true", )
+    parser.add_option("-y", "--yes", action="store_true", help="Run script without any user interaction")
 
     return parser.parse_args()
 
@@ -36,34 +33,42 @@ def util_capture_options():
 def print_confirmation():
     print("satellite_register will run on %s with the following information:" % me.fqdn)
     print me
-    proceed = raw_input("Is this OK? [Y/n]")
 
-    if proceed.upper() == "N" or proceed.upper() == "NO":
-        print("Registration cancelled. Please check your input and try again.")
-        exit(0)
+    go = False
+    while go is False:
+        proceed = raw_input("Is this OK? [Y/n]").upper()
+        if proceed is "N" or proceed is "NO":
+            print("Registration cancelled. Please check your input and try again.")
+            exit(0)
+        elif proceed is "Y" or proceed is "YES":
+            go = True
+        else:
+            print("Invalid input: Please answer Y/yes or N/no.")
 
 
-parser = OptionParser()
+usage = ("Usage: %prog [options] capsule_fqdn\n"
+         "capsule_fqdn is the fully-qualified domain of the Satellite Capsule endpoint to which you are registering.\n"
+         "It may be the embedded Capsule within the Satellite master or any standalone Capsule in your environment.")
+
+parser = OptionParser(usage)
 (clo, cla) = util_capture_options()
-try:
-    me = CurrentHost(clo, cla[0])
-except CurrentHostException, che:
-    print che
-    exit(69)  # 69.pem is the certificate file for RHEL
-
 # Check the input with the user before proceeding
 if clo.yes:
     print_confirmation()
 
-sy = SatelliteYum()
-sy.update_rhsm()
-# TODO: manage NTP service
-sy.clean_rhn_classic()
-sy.install_sat6()
+if not clo.skip_install:
+    sy = satellite.SatelliteYum()
+    sy.update_rhsm()
+    # TODO: manage NTP service
+    sy.clean_rhn_classic()
+    sy.install_sat6()
+
 try:
+    me = satellite.CurrentHost(clo, cla[0])
     me.register()
-except CurrentHostException, che:
+except satellite.CurrentHostException, che:
     print che
-    exit(1)
+    exit(69)  # 69.pem is the certificate file for RHEL
+
 
 call("/usr/sbin/katello-package-upload")
