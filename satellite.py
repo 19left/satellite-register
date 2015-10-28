@@ -1,12 +1,19 @@
 __author__ = 'scott.a.clark'
 
-
 import os
-from platform import dist
 import socket
 import subprocess
+
+from platform import dist
 from yum import YumBase
 
+# Conditional imports
+try:
+    # simplejson is only available in Python 2.5+ (hence no RHEL 5)
+    import simplejson as json
+    # requests
+except ImportError:
+    import json
 
 class CurrentHost:
     def __init__(self, clo, cap):
@@ -130,7 +137,7 @@ class SatelliteYum(YumBase):
         self.remove(name="osad")
         self.process()
 
-    def localinstall_katelloca(self, sat, tmpdir):
+    def localinstall_katelloca(self, src, tmpdir="/tmp"):
         """
         localinstall_katelloca: Install the Satellite 6 CA cert package
         """
@@ -139,7 +146,7 @@ class SatelliteYum(YumBase):
             self.process()
 
         rpm = "katello-ca-consumer-latest.noarch.rpm"
-        spath = "http://%s/pub/%s" % (sat, rpm)
+        spath = "http://%s/pub/%s" % (src, rpm)
         dpath = "%s/%s" % (tmpdir, rpm)
         subprocess.call(["/usr/bin/wget", "-qO", dpath, spath])
 
@@ -168,60 +175,61 @@ class SatelliteYum(YumBase):
         self.process()
 
 
-class Service:
-    def __init__(self, name, rpm=None):
-        """
-        *** THIS CLASS SHOULD BE OVERRIDDEN ***
-        __init__
-        :param name: name of service to manage
-        :param rpm: name of rpm (if different from service name)
-        """
-        self.name = name
-        if not rpm:
-            self.rpm = rpm
-        else:
-            self.rpm = name
+class SatellitePuppet(object):
+    def __init__(self, master):
+        self.__file = "/etc/puppet/puppet.conf"
+        self.master = master
 
-        self.enabled = False
+        # Update the configuration file
+        pconf = open(self.__file)
+        contents = pconf.readlines()
+        pconf.close()
 
-        # Check if service is installed, enabled
-        self.yum = YumBase()
-        if self.rpm:
-            self.installed = self.yum.rpmdb.searchNevra(name=self.rpm)
-        else:
-            self.installed = self.yum.rpmdb.searchNevra(name=self.name)
+        i = (contents.index('    classfile = $vardir/classes.txt\n')) + 1
 
-        # To check if we're actually enabled, we'll need to override with version-specific
-        # commands: RHEL 5/6 will use service/chkconfig; RHEL 7 uses systemctl
+        # You have to write these in reverse order for the insert to work
+        contents.insert(i, "    server = %s\n" % self.master)
+        contents.insert(i, "    ca_server = %s\n" % self.master)
+        contents.insert(i, "    daemon = false\n")
+        contents.insert(i, "    ignoreschedules = true\n")
+        contents.insert(i, "    report = true\n")
+        contents.insert(i, "    pluginsync = true\n")
+        contents.insert(i, "    # Satellite 6 Environment Configuration\n")
+        contents.insert(i, "\n")
 
-    def install(self):
-        if not self.installed:
-            self.yum.install(name=self.rpm)
-            self.yum.resolveDeps()
-            self.yum.processTransaction()
+        pconf = open(self.__file, 'w')
+        pconf.writelines(contents)
+        pconf.close()
 
-    def remove(self):
-        if self.installed:
-            self.yum.remove(name=self.rpm)
-            self.yum.resolveDeps()
-            self.yum.processTransaction()
+    def run(self):
+        ps = subprocess.Popen(['/usr/bin/puppet', 'agent', '-t'], stdout=subprocess.PIPE)
+        return ps.communicate()
 
-class SysVService(Service):
-    def __init__(self, name, rpm):
-        super(self.__class__, self).__init__(name, rpm)
-        self.check_command = "/sbin/chkconfig"
-        self.manage_command = "/sbin/service"
-        if self.installed:
-            # Use SysV command to check if enabled
-            self.enabled = not subprocess.call([self.check_command, self.name])
+class SatellitePuppetException(Exception):
+    def __init__(self, msg):
+        self.msg = msg
 
-    def enable(self):
-        if self.installed and not self.enabled:
-            subprocess.call([self.check_command, self.name, "on"])
+    def __str__(self):
+        return "SatellitePuppetException: %s" % self.msg
 
-    def disable(self):
-        if self.installed and self.enabled:
-            subprocess.call([self.check_command, self.name, "off"])
+class SatelliteAPI():
+    def __init__(self):
+        try:
+            import requests
+        except ImportError:
+            # Possible causes:
+            #   1) RPM is not installed
+            #   2) RHEL 5 does not have this module
+            if int(dist()[1][0]) is 5:
+                raise SatelliteAPIException("Cannot use Satellite API on RHEL 5 systems.")
+            else:
+                # We're on 6 or 7--make sure the python-requests RPM is installed.
+                # TODO: Install python-requests
 
-    def start(self):
-        if self.
+
+class SatelliteAPIException(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __str__(self):
+        return "SatelliteAPIException: %s" % self.msg

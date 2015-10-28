@@ -24,7 +24,8 @@ def util_capture_options():
                       help="Satellite Organization in which to register Current Host [REQUIRED]")
     parser.add_option("-c", "--hostcollection", action="append", metavar="HC",
                       help="Additional host collections to associate (may be specified more than once)")
-    parser.add_option("--skip-install", action="store_true", )
+    parser.add_option("--skip-install", action="store_true")
+    parser.add_option("--skip-rhn-clean", action="store_true")
     parser.add_option("-y", "--yes", action="store_true", help="Run script without any user interaction")
 
     return parser.parse_args()
@@ -52,23 +53,37 @@ usage = ("Usage: %prog [options] capsule_fqdn\n"
 
 parser = OptionParser(usage)
 (clo, cla) = util_capture_options()
-# Check the input with the user before proceeding
-if clo.yes:
+# Check the input with the user before proceeding if they have not used the -y option
+if not clo.yes:
     print_confirmation()
-
-if not clo.skip_install:
-    sy = satellite.SatelliteYum()
-    sy.update_rhsm()
-    # TODO: manage NTP service
-    sy.clean_rhn_classic()
-    sy.install_sat6()
 
 try:
     me = satellite.CurrentHost(clo, cla[0])
-    me.register()
+    if not clo.skip_install:
+        sy = satellite.SatelliteYum()
+        sy.update_rhsm()
+        if not clo.skip_rhn_clean:
+            sy.clean_rhn_classic()
+        sy.localinstall_katelloca(me.master)
+        me.register()
+        sy.install_sat6()
+
+        call("/usr/sbin/katello-package-upload")
+
+        puppet = satellite.SatellitePuppet(me.master)
+        # First run generates certificate
+        print puppet.run()
+        # If not autosigned, maybe additional code required here?
+        # Second run validates certificate
+        print puppet.run()
 except satellite.CurrentHostException, che:
     print che
     exit(69)  # 69.pem is the certificate file for RHEL
-
-
-call("/usr/sbin/katello-package-upload")
+except Exception, e:
+    # Catch-all Exception Handling
+    exception_type = e.__class__.__name__
+    if exception_type == "SystemExit":
+        exit()
+    else:
+        print " EXCEPTION(" + exception_type + "): " + str(e)
+        exit(-1)
