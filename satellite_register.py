@@ -58,9 +58,9 @@ if not clo.yes:
     print_confirmation()
 
 try:
+    sy = satellite.SatelliteYum()
     me = satellite.CurrentHost(clo, cla[0])
     if not clo.skip_install:
-        sy = satellite.SatelliteYum()
         sy.update_rhsm()
         if not clo.skip_rhn_clean:
             sy.clean_rhn_classic()
@@ -79,6 +79,9 @@ try:
 except satellite.CurrentHostException, che:
     print che
     exit(69)  # 69.pem is the certificate file for RHEL
+except satellite.SatellitePuppetException, spe:
+    print spe
+    exit(2)
 except Exception, e:
     # Catch-all Exception Handling
     exception_type = e.__class__.__name__

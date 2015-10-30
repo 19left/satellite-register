@@ -7,6 +7,18 @@ import subprocess
 from platform import dist
 from yum import YumBase
 
+try:
+    import requests
+except ImportError:
+    # Possible causes:
+    #   1) RPM is not installed
+    #   2) RHEL 5 does not have this module
+    requests = None
+    if int(dist()[1][0]) is 5:
+        raise Exception("Cannot use Satellite API on RHEL 5 systems.")
+    else:
+        raise Exception("Cannot import requests module. Satellite API not available.")
+
 # Conditional imports
 try:
     # simplejson is only available in Python 2.5+ (hence no RHEL 5)
@@ -14,6 +26,7 @@ try:
     # requests
 except ImportError:
     import json
+
 
 class CurrentHost:
     def __init__(self, clo, cap):
@@ -50,7 +63,7 @@ class CurrentHost:
         if not os.listdir("/etc/pki/product") or not os.path.isfile("/etc/pki/product/69.pem"):
             # Get the appropriate certificate file by major version
             cert = "http://%s/pub/rhel%sproduct.pem" % (self.master, self.majorver)
-            subprocess.call(["wget", "-qO", "/etc/pki/product/69.pem", cert])
+            subprocess.call(["/usr/bin/wget", "-qO", "/etc/pki/product/69.pem", cert])
             if not os.path.exists("/etc/pki/product/69.pem"):
                 raise CurrentHostException("Current Host does not have a valid product, Cannot register.")
 
@@ -101,6 +114,11 @@ class SatelliteYum(YumBase):
         super(self.__class__, self).__init__()
         self.conf.assumeyes = True
 
+        # Prep host with required packages
+        self.install(name="wget")
+        self.install(name="python-requests")
+        self.process()
+
     def process(self):
         self.resolveDeps()
         self.processTransaction()
@@ -141,10 +159,6 @@ class SatelliteYum(YumBase):
         """
         localinstall_katelloca: Install the Satellite 6 CA cert package
         """
-        if not self.find("wget"):
-            self.install(name="wget")
-            self.process()
-
         rpm = "katello-ca-consumer-latest.noarch.rpm"
         spath = "http://%s/pub/%s" % (src, rpm)
         dpath = "%s/%s" % (tmpdir, rpm)
@@ -181,29 +195,31 @@ class SatellitePuppet(object):
         self.master = master
 
         # Update the configuration file
-        pconf = open(self.__file)
-        contents = pconf.readlines()
-        pconf.close()
-
-        i = (contents.index('    classfile = $vardir/classes.txt\n')) + 1
-
-        # You have to write these in reverse order for the insert to work
-        contents.insert(i, "    server = %s\n" % self.master)
-        contents.insert(i, "    ca_server = %s\n" % self.master)
-        contents.insert(i, "    daemon = false\n")
-        contents.insert(i, "    ignoreschedules = true\n")
-        contents.insert(i, "    report = true\n")
-        contents.insert(i, "    pluginsync = true\n")
-        contents.insert(i, "    # Satellite 6 Environment Configuration\n")
-        contents.insert(i, "\n")
-
         pconf = open(self.__file, 'w')
-        pconf.writelines(contents)
-        pconf.close()
+        if "ca_server" not in pconf.read():
+            contents = pconf.readlines()
+            i = (contents.index('    classfile = $vardir/classes.txt\n')) + 1
+
+            # You have to write these in reverse order for the insert to work
+            contents.insert(i, "    server = %s\n" % self.master)
+            contents.insert(i, "    ca_server = %s\n" % self.master)
+            contents.insert(i, "    daemon = false\n")
+            contents.insert(i, "    ignoreschedules = true\n")
+            contents.insert(i, "    report = true\n")
+            contents.insert(i, "    pluginsync = true\n")
+            contents.insert(i, "    # Satellite 6 Environment Configuration\n")
+            contents.insert(i, "\n")
+
+            pconf.writelines(contents)
+            pconf.close()
+        else:
+            pconf.close()
+            raise SatellitePuppetException("Puppet has been configured before. Do this step manually")
 
     def run(self):
         ps = subprocess.Popen(['/usr/bin/puppet', 'agent', '-t'], stdout=subprocess.PIPE)
         return ps.communicate()
+
 
 class SatellitePuppetException(Exception):
     def __init__(self, msg):
@@ -212,19 +228,11 @@ class SatellitePuppetException(Exception):
     def __str__(self):
         return "SatellitePuppetException: %s" % self.msg
 
-class SatelliteAPI():
+
+class SatelliteAPI(object):
     def __init__(self):
-        try:
-            import requests
-        except ImportError:
-            # Possible causes:
-            #   1) RPM is not installed
-            #   2) RHEL 5 does not have this module
-            if int(dist()[1][0]) is 5:
-                raise SatelliteAPIException("Cannot use Satellite API on RHEL 5 systems.")
-            else:
-                # We're on 6 or 7--make sure the python-requests RPM is installed.
-                # TODO: Install python-requests
+        if not requests:
+            pass
 
 
 class SatelliteAPIException(Exception):
