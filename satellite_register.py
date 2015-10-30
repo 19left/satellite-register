@@ -1,10 +1,11 @@
+#!/usr/bin/python
 __author__ = 'scott.a.clark'
 
 import logging
 from optparse import OptionParser
 import satellite
 from subprocess import call
-
+from sys import exit
 
 def util_capture_options():
     """
@@ -24,24 +25,34 @@ def util_capture_options():
                       help="Satellite Organization in which to register Current Host [REQUIRED]")
     parser.add_option("-c", "--hostcollection", action="append", metavar="HC",
                       help="Additional host collections to associate (may be specified more than once)")
-    parser.add_option("--skip-install", action="store_true")
-    parser.add_option("--skip-rhn-clean", action="store_true")
+    parser.add_option("--skip-update-rhsm", action="store_true",
+                      help="Skips update of subscription-manager package")
+    parser.add_option("--skip-rhn-clean", action="store_true",
+                      help="Skips removal of RHN Classic components")
+    parser.add_option("--skip-katelloca", action="store_true",
+                      help="Skips install of Satellite/Capsule CA cert package")
+    parser.add_option("--skip-register", action="store_true",
+                      help="Skips subscription-manager register step")
+    parser.add_option("--skip-install", action="store_true",
+                      help="Preps system but does not install packages or register.")
+    parser.add_option("--skip-puppet", action="store_true",
+                      help="Skips Puppet configuration (Content Host-only Registration)")
     parser.add_option("-y", "--yes", action="store_true", help="Run script without any user interaction")
 
     return parser.parse_args()
 
 
-def print_confirmation():
-    print("satellite_register will run on %s with the following information:" % me.fqdn)
-    print me
+def print_confirmation(host):
+    print("satellite_register will run on %s with the following information:" % host.fqdn)
+    print host
 
     go = False
     while go is False:
-        proceed = raw_input("Is this OK? [Y/n]").upper()
-        if proceed is "N" or proceed is "NO":
+        proceed = raw_input("Is this OK? [Y/n]: ").upper()
+        if proceed == "N" or proceed == "NO":
             print("Registration cancelled. Please check your input and try again.")
             exit(0)
-        elif proceed is "Y" or proceed is "YES":
+        elif proceed == "Y" or proceed == "YES":
             go = True
         else:
             print("Invalid input: Please answer Y/yes or N/no.")
@@ -53,23 +64,32 @@ usage = ("Usage: %prog [options] capsule_fqdn\n"
 
 parser = OptionParser(usage)
 (clo, cla) = util_capture_options()
-# Check the input with the user before proceeding if they have not used the -y option
-if not clo.yes:
-    print_confirmation()
 
 try:
     sy = satellite.SatelliteYum()
     me = satellite.CurrentHost(clo, cla[0])
-    if not clo.skip_install:
-        sy.update_rhsm()
-        if not clo.skip_rhn_clean:
-            sy.clean_rhn_classic()
-        sy.localinstall_katelloca(me.master)
-        me.register()
-        sy.install_sat6()
+    # Check the input with the user before proceeding if they have not used the -y option
+    if not clo.yes:
+        print_confirmation(me)
 
+    # Proceed with script, noting short-circuits
+    if not clo.skip_update_rhsm:
+        sy.update_rhsm()
+
+    if not clo.skip_rhn_clean:
+        sy.clean_rhn_classic()
+
+    if not clo.skip_katelloca:
+        sy.localinstall_katelloca(me.master)
+
+    if not clo.skip_register:
+        me.register()
+
+    if not clo.skip_install:
+        sy.install_sat6()
         call("/usr/sbin/katello-package-upload")
 
+    if not clo.skip_puppet:
         puppet = satellite.SatellitePuppet(me.master)
         # First run generates certificate
         print puppet.run()

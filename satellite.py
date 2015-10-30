@@ -5,19 +5,19 @@ import socket
 import subprocess
 
 from platform import dist
-from yum import YumBase
+from yum import YumBase, Errors
 
-try:
-    import requests
-except ImportError:
-    # Possible causes:
-    #   1) RPM is not installed
-    #   2) RHEL 5 does not have this module
-    requests = None
-    if int(dist()[1][0]) is 5:
-        raise Exception("Cannot use Satellite API on RHEL 5 systems.")
-    else:
-        raise Exception("Cannot import requests module. Satellite API not available.")
+# try:
+#     import requests
+# except ImportError:
+#     # Possible causes:
+#     #   1) RPM is not installed
+#     #   2) RHEL 5 does not have this module
+#     requests = None
+#     if int(dist()[1][0]) == 5:
+#         print("Cannot use Satellite API on RHEL 5 systems.")
+#     else:
+#         print("Cannot import requests module. Satellite API not available.")
 
 # Conditional imports
 try:
@@ -70,7 +70,11 @@ class CurrentHost:
     def __str__(self):
         __str = ""
         for k, v in self.__dict__.iteritems():
-            __str += "%s:               %s\n" % (k, v)
+            # Ignore run flags copied in from command-line options
+            if "skip" in k or k == "yes":
+                continue
+            k += ":"
+            __str += "%s%s\n" % (k.ljust(25), v)
         return __str
 
     def register(self):
@@ -116,8 +120,14 @@ class SatelliteYum(YumBase):
 
         # Prep host with required packages
         self.install(name="wget")
-        self.install(name="python-requests")
         self.process()
+        # We're only going to do this when API is ready to rock. Ignore for now.
+        # TODO: For RHEL 5 systems, we need to catch InstallError
+        try:
+            self.install(name="python-requests")
+            self.process()
+        except Errors.InstallError:
+            print "python-requests is not available for this system"
 
     def process(self):
         self.resolveDeps()
@@ -172,7 +182,7 @@ class SatelliteYum(YumBase):
     def manage_localrepo(self, repo, action=1):
         repolist = self.repos.findRepos(repo)
         for r in repolist:
-            if action is 0:
+            if action == 0:
                 r.disablePersistent()
             else:
                 r.enablePersistent()
@@ -229,15 +239,15 @@ class SatellitePuppetException(Exception):
         return "SatellitePuppetException: %s" % self.msg
 
 
-class SatelliteAPI(object):
-    def __init__(self):
-        if not requests:
-            pass
-
-
-class SatelliteAPIException(Exception):
-    def __init__(self, msg):
-        self.msg = msg
-
-    def __str__(self):
-        return "SatelliteAPIException: %s" % self.msg
+# class SatelliteAPI(object):
+#     def __init__(self):
+#         if not requests:
+#             pass
+#
+#
+# class SatelliteAPIException(Exception):
+#     def __init__(self, msg):
+#         self.msg = msg
+#
+#     def __str__(self):
+#         return "SatelliteAPIException: %s" % self.msg
