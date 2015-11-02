@@ -6,6 +6,7 @@ import subprocess
 
 from platform import dist
 from yum import YumBase, Errors
+from optparse import OptionParser
 
 # try:
 #     import requests
@@ -28,7 +29,7 @@ except ImportError:
     import json
 
 
-class CurrentHost:
+class CurrentHost(object):
     def __init__(self, clo, cap):
         self.master = cap
 
@@ -115,17 +116,15 @@ class CurrentHostException(Exception):
 
 class SatelliteYum(YumBase):
     def __init__(self):
-        super(self.__class__, self).__init__()
+        YumBase.__init__(self)
         self.conf.assumeyes = True
 
         # Prep host with required packages
-        self.install(name="wget")
-        self.process()
+        self.get_latest("wget")
+
         # We're only going to do this when API is ready to rock. Ignore for now.
-        # TODO: For RHEL 5 systems, we need to catch InstallError
         try:
-            self.install(name="python-requests")
-            self.process()
+            self.get_latest("python-requests")
         except Errors.InstallError:
             print "python-requests is not available for this system"
 
@@ -136,14 +135,14 @@ class SatelliteYum(YumBase):
     def find(self, pkgname):
         return self.rpmdb.searchNevra(name=pkgname)
 
-    def update_rhsm(self):
+    def get_latest(self, pkg):
         """
-        update_rhsm: Determines if subscription-manager is installed and ensures latest.
+        update_rhsm: Determines if package is installed and ensures latest.
         """
-        if self.find("subscription-manager"):
-            self.update(name="subscription-manager")
+        if self.find(pkg):
+            self.update(name=pkg)
         else:
-            self.install(name="subscription-manager")
+            self.install(name=pkg)
 
         self.process()
 
@@ -157,13 +156,17 @@ class SatelliteYum(YumBase):
             os.remove(sysidfile)
 
         # Cleanup all RHN Classic/Sat5-related packages
-        self.remove(name="yum-rhn-plugin")
-        self.remove(name="rhncfg*")
-        self.remove(name="rhn-client-tools")
-        self.remove(name="rhnlib")
-        self.remove(name="jabberpy")
-        self.remove(name="osad")
-        self.process()
+        pkgs = ["yum-rhn-plugin", "rhncfg*", "rhn-client-tools", "rhnlib", "jabberpy", "osad"]
+        gotone = False
+        for i in pkgs:
+            if self.find(i):
+                self.remove(name=i)
+                gotone = True
+
+        if gotone:
+            self.process()
+        else:
+            print "clean_rhn_classic: No RHN Classic components installed. Congratulations."
 
     def localinstall_katelloca(self, src, tmpdir="/tmp"):
         """
@@ -178,6 +181,35 @@ class SatelliteYum(YumBase):
         self.installLocal(dpath)
         self.process()
         self.conf.gpgcheck = True
+
+    def localinstall(self, rpm, srcdir="/tmp", remotehost=None, remotedir=None, ssl=True):
+        dpath = "%s/%s" % (srcdir, rpm)
+        spath = None
+        if remotehost:
+            if ssl:
+                spath = "https://"
+            else:
+                spath = "http://"
+
+            spath += "%s/" % remotehost
+            if remotedir:
+                spath += "%s/" % remotedir
+            spath += rpm
+
+            args = ["/usr/bin/wget", "-qO", dpath, spath]
+            print args
+            subprocess.call(args)
+
+        if os.path.exists(dpath):
+            self.conf.gpgcheck = False
+            self.installLocal(dpath)
+            self.process()
+            self.conf.gpgcheck = True
+        else:
+            if remotehost:
+                raise SatelliteYumException("Could not retrieve %s from %s. Check parameters" % (rpm, spath))
+            else:
+                raise SatelliteYumException("Could not find file %s for installation. Check paths." % dpath)
 
     def manage_localrepo(self, repo, action=1):
         repolist = self.repos.findRepos(repo)
@@ -199,36 +231,12 @@ class SatelliteYum(YumBase):
         self.process()
 
 
-class SatellitePuppet(object):
-    def __init__(self, master):
-        self.__file = "/etc/puppet/puppet.conf"
-        self.master = master
+class SatelliteYumException(Exception):
+    def __init__(self, msg):
+        self.msg = msg
 
-        # Update the configuration file
-        pconf = open(self.__file, 'w')
-        if "ca_server" not in pconf.read():
-            contents = pconf.readlines()
-            i = (contents.index('    classfile = $vardir/classes.txt\n')) + 1
-
-            # You have to write these in reverse order for the insert to work
-            contents.insert(i, "    server = %s\n" % self.master)
-            contents.insert(i, "    ca_server = %s\n" % self.master)
-            contents.insert(i, "    daemon = false\n")
-            contents.insert(i, "    ignoreschedules = true\n")
-            contents.insert(i, "    report = true\n")
-            contents.insert(i, "    pluginsync = true\n")
-            contents.insert(i, "    # Satellite 6 Environment Configuration\n")
-            contents.insert(i, "\n")
-
-            pconf.writelines(contents)
-            pconf.close()
-        else:
-            pconf.close()
-            raise SatellitePuppetException("Puppet has been configured before. Do this step manually")
-
-    def run(self):
-        ps = subprocess.Popen(['/usr/bin/puppet', 'agent', '-t'], stdout=subprocess.PIPE)
-        return ps.communicate()
+    def __str__(self):
+        return "SatelliteYumException: %s" % self.msg
 
 
 class SatellitePuppetException(Exception):
@@ -237,6 +245,38 @@ class SatellitePuppetException(Exception):
 
     def __str__(self):
         return "SatellitePuppetException: %s" % self.msg
+
+
+class SatelliteOptParse(OptionParser):
+    def __init__(self, usage):
+        OptionParser.__init__(self, usage)
+        self.add_option("-a", "--activationkey", metavar="KEY",
+                        help="Register to Capsule using activation key KEY")
+        self.add_option("-e", "--environment", metavar="LCE",
+                        help="Lifecycle Environment in which to place Current Host (Activation Key overrides this)")
+        self.add_option("-l", "--location", metavar="LOC",
+                        help="Location of Host")
+        self.add_option("-o", "--organization", metavar="ORG",
+                        help="Satellite Organization in which to register Current Host [REQUIRED]")
+        self.add_option("-c", "--hostcollection", action="append", metavar="HC",
+                        help="Additional host collections to associate (may be specified more than once)")
+        self.add_option("--skip-update-rhsm", action="store_true",
+                        help="Skips update of subscription-manager package")
+        self.add_option("--skip-rhn-clean", action="store_true",
+                        help="Skips removal of RHN Classic components")
+        self.add_option("--skip-katelloca", action="store_true",
+                        help="Skips install of Satellite/Capsule CA cert package")
+        self.add_option("--skip-register", action="store_true",
+                        help="Skips subscription-manager register step")
+        self.add_option("--skip-install", action="store_true",
+                        help="Preps system but does not install packages or register.")
+        self.add_option("--skip-puppet", action="store_true",
+                        help="Skips Puppet configuration (Content Host-only Registration)")
+        self.add_option("--tmpdir", metavar="TMP", default="/tmp",
+                        help="Directory for temporary files [Default: /tmp]")
+        self.add_option("--disable-ssl", action="store_false", dest="ssl", default=True,
+                        help="Disable SSL communication with Satellite/Capsule (not recommended)")
+        self.add_option("-y", "--yes", action="store_true", help="Run script without any user interaction")
 
 
 # class SatelliteAPI(object):
@@ -251,3 +291,46 @@ class SatellitePuppetException(Exception):
 #
 #     def __str__(self):
 #         return "SatelliteAPIException: %s" % self.msg
+
+def print_confirmation(host):
+    print("satellite_register will run on %s with the following information:" % host.fqdn)
+    print host
+
+    go = False
+    while go is False:
+        proceed = raw_input("Is this OK? [Y/n]: ").upper()
+        if proceed == "N" or proceed == "NO":
+            print("Registration cancelled. Please check your input and try again.")
+            exit(0)
+        elif proceed == "Y" or proceed == "YES":
+            go = True
+        else:
+            print("Invalid input: Please answer Y/yes or N/no.")
+
+
+def configure_puppet(master):
+    # Update the configuration file
+    pconf = open("/etc/puppet/puppet.conf", 'w')
+    if "ca_server" not in pconf.read():
+        contents = pconf.readlines()
+        i = (contents.index('    classfile = $vardir/classes.txt\n')) + 1
+
+        # You have to write these in reverse order for the insert to work
+        contents.insert(i, "    server = %s\n" % master)
+        contents.insert(i, "    ca_server = %s\n" % master)
+        contents.insert(i, "    daemon = false\n")
+        contents.insert(i, "    ignoreschedules = true\n")
+        contents.insert(i, "    report = true\n")
+        contents.insert(i, "    pluginsync = true\n")
+        contents.insert(i, "    # Satellite 6 Environment Configuration\n")
+        contents.insert(i, "\n")
+
+        pconf.writelines(contents)
+        pconf.close()
+    else:
+        pconf.close()
+        raise SatellitePuppetException("Puppet has been configured before. Do this step manually")
+
+
+def puppet_run():
+    subprocess.call(['/usr/bin/puppet', 'agent', '-t'], stdout=subprocess.PIPE)
