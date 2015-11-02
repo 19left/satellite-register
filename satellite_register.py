@@ -34,6 +34,7 @@ def do_satellite_register():
 
         if not clo.skip_register:
             me.register()
+            sy.clean_all()
 
         if not clo.skip_install:
             sy.install_sat6()

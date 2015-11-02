@@ -90,20 +90,33 @@ class CurrentHost(object):
         else:
             args.extend(["--environment", self.environment])
 
-        ps = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        ps = subprocess.Popen(args, stdout=subprocess.PIPE)
         (out, err) = ps.communicate()
+        if "--force" in out:
+            print out
+            go = False
+            while go is False:
+                proceed = raw_input("Force registration? [Y/n]: ").upper()
+                if proceed == "N" or proceed == "NO":
+                    raise CurrentHostException("Forced Registration cancelled.")
+                elif proceed == "Y" or proceed == "YES":
+                    go = True
+                else:
+                    print("Invalid input: Please answer Y/yes or N/no.")
 
-        if not out or "--force" in err:
             args.append("--force")
-            ps = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            ps = subprocess.Popen(args, stdout=subprocess.PIPE)
             (out, err) = ps.communicate()
-
-        if out:
+            if not out:
+                raise CurrentHostException("System did not register properly, even with --force option")
+            else:
+                # Capture system UUID from subscription-manager output
+                list_out = out.split(': ')
+                self.uuid = list_out[1]
+        else:
             # Capture system UUID from subscription-manager output
             list_out = out.split(': ')
             self.uuid = list_out[1]
-        else:
-            raise CurrentHostException("System did not register properly, even with --force option")
 
 
 class CurrentHostException(Exception):
@@ -167,20 +180,6 @@ class SatelliteYum(YumBase):
             self.process()
         else:
             print "clean_rhn_classic: No RHN Classic components installed. Congratulations."
-
-    def localinstall_katelloca(self, src, tmpdir="/tmp"):
-        """
-        localinstall_katelloca: Install the Satellite 6 CA cert package
-        """
-        rpm = "katello-ca-consumer-latest.noarch.rpm"
-        spath = "http://%s/pub/%s" % (src, rpm)
-        dpath = "%s/%s" % (tmpdir, rpm)
-        subprocess.call(["/usr/bin/wget", "-qO", dpath, spath])
-
-        self.conf.gpgcheck = False
-        self.installLocal(dpath)
-        self.process()
-        self.conf.gpgcheck = True
 
     def localinstall(self, rpm, srcdir="/tmp", remotehost=None, remotedir=None, ssl=True):
         dpath = "%s/%s" % (srcdir, rpm)
