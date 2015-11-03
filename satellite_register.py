@@ -41,25 +41,30 @@ def do_satellite_register():
             subprocess.call("/usr/sbin/katello-package-upload")
 
         if not clo.skip_puppet:
-            satellite.configure_puppet(me.master)
-            # First run generates certificate
-            satellite.puppet_run()
-            # If not autosigned, maybe additional code required here?
-            # Second run validates certificate
-            satellite.puppet_run()
+            if satellite.configure_puppet(me.master):
+                # Puppet configuration succeeded, continue...otherwise skip runs. We're not ready.
+                # First run generates certificate
+                satellite.puppet_run()
+                # If not autosigned, maybe additional code required here?
+                # Second run validates certificate
+                satellite.puppet_run()
+
+                if int(me.majorver) == 7:
+                    subprocess.call(["/usr/bin/systemctl", "enable", "puppet"])
+                    subprocess.call(["/usr/bin/systemctl", "start", "puppet"])
+                else:
+                    subprocess.call(["/sbin/chkconfig", "puppet", "on"])
+                    subprocess.call(["/sbin/service", "puppet", "start"])
     except satellite.CurrentHostException, che:
         print che
         exit(69)  # 69.pem is the certificate file for RHEL
-    except satellite.SatellitePuppetException, spe:
-        print spe
-        exit(2)
     except Exception, e:
         # Catch-all Exception Handling
         exception_type = e.__class__.__name__
         if exception_type == "SystemExit":
             exit()
         else:
-            print " EXCEPTION(" + exception_type + "): " + str(e)
+            print ">>>EXCEPTION(" + exception_type + "): " + str(e)
             exit(-1)
 
 

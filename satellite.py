@@ -98,7 +98,8 @@ class CurrentHost(object):
             while go is False:
                 proceed = raw_input("Force registration? [Y/n]: ").upper()
                 if proceed == "N" or proceed == "NO":
-                    raise CurrentHostException("Forced Registration cancelled.")
+                    print "Forced Registration cancelled."
+                    return
                 elif proceed == "Y" or proceed == "YES":
                     go = True
                 else:
@@ -238,14 +239,6 @@ class SatelliteYumException(Exception):
         return "SatelliteYumException: %s" % self.msg
 
 
-class SatellitePuppetException(Exception):
-    def __init__(self, msg):
-        self.msg = msg
-
-    def __str__(self):
-        return "SatellitePuppetException: %s" % self.msg
-
-
 class SatelliteOptParse(OptionParser):
     def __init__(self, usage):
         OptionParser.__init__(self, usage)
@@ -309,10 +302,19 @@ def print_confirmation(host):
 
 def configure_puppet(master):
     # Update the configuration file
-    pconf = open("/etc/puppet/puppet.conf", 'w')
-    if "ca_server" not in pconf.read():
-        contents = pconf.readlines()
-        i = (contents.index('    classfile = $vardir/classes.txt\n')) + 1
+    __file = "/etc/puppet/puppet.conf"
+    pconf = open(__file, 'r+')
+    contents = pconf.readlines()
+    if not file_find(contents, "ca_server"):
+        print "Didn't find ca_server parameter...let's configure Puppet!"
+        print len(contents)
+        exactmatch = file_find(contents, "classfile")
+        if exactmatch:
+            i = (contents.index(exactmatch)) + 1
+        else:
+            print ("Puppet configuration does not match expected format. "
+                   "Please review %s and configure manually." % __file)
+            return False
 
         # You have to write these in reverse order for the insert to work
         contents.insert(i, "    server = %s\n" % master)
@@ -326,10 +328,20 @@ def configure_puppet(master):
 
         pconf.writelines(contents)
         pconf.close()
+        return True
     else:
         pconf.close()
-        raise SatellitePuppetException("Puppet has been configured before. Do this step manually")
+        print "Puppet has been configured before. Do this manually after script completes."
+        return False
 
 
 def puppet_run():
     subprocess.call(['/usr/bin/puppet', 'agent', '-t'], stdout=subprocess.PIPE)
+
+
+def file_find(contents, search):
+    for line in contents:
+        if search in line:
+            return line
+    return None
+
