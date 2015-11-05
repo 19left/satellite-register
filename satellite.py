@@ -145,6 +145,9 @@ class SatelliteYum(YumBase):
     def process(self):
         self.resolveDeps()
         self.processTransaction()
+        for pkg in self.tsInfo.getMembers():
+            print pkg.po.pkgtup
+            self.tsInfo.remove(pkg.po.pkgtup)
 
     def find(self, pkgname):
         return self.rpmdb.searchNevra(name=pkgname)
@@ -224,11 +227,6 @@ class SatelliteYum(YumBase):
         self.cleanHeaders()
         self.cleanMetadata()
         self.cleanSqlite()
-
-    def install_sat6(self):
-        self.install(name="katello-agent")
-        self.install(name="puppet")
-        self.process()
 
 
 class SatelliteYumException(Exception):

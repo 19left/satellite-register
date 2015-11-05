@@ -22,25 +22,32 @@ def do_satellite_register():
 
         # Proceed with script, noting short-circuits
         if not clo.skip_update_rhsm:
+            print "Installing/Updating subscription-manager..."
             sy.get_latest("subscription-manager")
 
         if not clo.skip_rhn_clean:
+            print "Removing RHN Classic components..."
             sy.clean_rhn_classic()
 
         if not clo.skip_katelloca:
+            print "Installing katello-ca-consumer-latest..."
             # sy.localinstall_katelloca(me.master)
             sy.localinstall(rpm="katello-ca-consumer-latest.noarch.rpm", remotedir="pub", srcdir=clo.tmpdir,
                             remotehost=me.master, ssl=clo.ssl)
 
         if not clo.skip_register:
+            print "Registering system with subscription-manager..."
             me.register()
             sy.clean_all()
 
         if not clo.skip_install:
-            sy.install_sat6()
+            print "Installing Satellite 6 components..."
+            sy.get_latest("katello-agent")
+            sy.get_latest("puppet")
             subprocess.call("/usr/sbin/katello-package-upload")
 
         if not clo.skip_puppet:
+            print "Configuring Puppet..."
             if satellite.configure_puppet(me.master):
                 # Puppet configuration succeeded, continue...otherwise skip runs. We're not ready.
                 # First run generates certificate
