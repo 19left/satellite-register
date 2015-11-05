@@ -306,8 +306,6 @@ def configure_puppet(master):
     pconf = open(__file, 'r+')
     contents = pconf.readlines()
     if not file_find(contents, "ca_server"):
-        print "Didn't find ca_server parameter...let's configure Puppet!"
-        print len(contents)
         exactmatch = file_find(contents, "classfile")
         if exactmatch:
             i = (contents.index(exactmatch)) + 1
