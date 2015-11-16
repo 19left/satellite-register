@@ -24,10 +24,12 @@ def do_satellite_register():
         if not clo.skip_update_rhsm:
             print "Installing/Updating subscription-manager..."
             sy.get_latest("subscription-manager")
+            sy.process()
 
         if not clo.skip_rhn_clean:
             print "Removing RHN Classic components..."
             sy.clean_rhn_classic()
+            sy.update_components()
 
         if not clo.skip_katelloca:
             print "Installing katello-ca-consumer-latest..."
@@ -42,8 +44,7 @@ def do_satellite_register():
 
         if not clo.skip_install:
             print "Installing Satellite 6 components..."
-            sy.get_latest("katello-agent")
-            sy.get_latest("puppet")
+            sy.install_sat6_components()
             subprocess.call("/usr/sbin/katello-package-upload")
 
         if not clo.skip_puppet:

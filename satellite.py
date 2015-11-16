@@ -114,6 +114,8 @@ class CurrentHost(object):
                 # Capture system UUID from subscription-manager output
                 list_out = out.split(': ')
                 self.uuid = list_out[1]
+        elif not out:
+            raise CurrentHostException("System failed to register. Check /var/log/rhsm/rhsm.log for more information.")
         else:
             # Capture system UUID from subscription-manager output
             list_out = out.split(': ')
@@ -137,10 +139,10 @@ class SatelliteYum(YumBase):
         self.get_latest("wget")
 
         # We're only going to do this when API is ready to rock. Ignore for now.
-        try:
-            self.get_latest("python-requests")
-        except Errors.InstallError:
-            print "python-requests is not available for this system"
+        # try:
+        #     self.get_latest("python-requests")
+        # except Errors.InstallError:
+        #     print "python-requests is not available for this system"
 
     def process(self):
         self.resolveDeps()
@@ -160,6 +162,13 @@ class SatelliteYum(YumBase):
             self.update(name=pkg)
         else:
             self.install(name=pkg)
+
+        self.process()
+
+    def update_components(self):
+        pkgs = ["yum-metadata-parser", "yum"]
+        for i in pkgs:
+            self.update(name=i)
 
         self.process()
 
@@ -213,6 +222,14 @@ class SatelliteYum(YumBase):
                 raise SatelliteYumException("Could not retrieve %s from %s. Check parameters" % (rpm, spath))
             else:
                 raise SatelliteYumException("Could not find file %s for installation. Check paths." % dpath)
+
+    def install_sat6_components(self):
+        try:
+            self.install(name="katello-agent")
+            self.install(name="puppet")
+            self.process()
+        except Errors.InstallError:
+            raise SatelliteYumException("Satellite repositories did not configure properly. Please check components.")
 
     def manage_localrepo(self, repo, action=1):
         repolist = self.repos.findRepos(repo)
