@@ -1,5 +1,3 @@
-__author__ = 'scott.a.clark'
-
 import os
 import socket
 import subprocess
@@ -27,6 +25,8 @@ try:
     # requests
 except ImportError:
     import json
+
+__author__ = 'scott.a.clark'
 
 
 class CurrentHost(object):
@@ -121,6 +121,9 @@ class CurrentHost(object):
             list_out = out.split(': ')
             self.uuid = list_out[1]
 
+            subprocess.call(["/usr/bin/yum", "clean", "all"])
+            subprocess.call(["/usr/bin/yum", "makecache"])
+
 
 class CurrentHostException(Exception):
     def __init__(self, msg):
@@ -134,9 +137,6 @@ class SatelliteYum(YumBase):
     def __init__(self):
         YumBase.__init__(self)
         self.conf.assumeyes = True
-
-        # Prep host with required packages
-        self.get_latest("wget")
 
         # We're only going to do this when API is ready to rock. Ignore for now.
         # try:
@@ -155,9 +155,6 @@ class SatelliteYum(YumBase):
         return self.rpmdb.searchNevra(name=pkgname)
 
     def get_latest(self, pkg):
-        """
-        update_rhsm: Determines if package is installed and ensures latest.
-        """
         if self.find(pkg):
             self.update(name=pkg)
         else:
@@ -225,10 +222,10 @@ class SatelliteYum(YumBase):
 
     def install_sat6_components(self):
         try:
-            self.install(name="katello-agent")
-            self.install(name="puppet")
-            self.process()
-        except Errors.InstallError:
+            self.get_latest("katello-agent")
+            self.get_latest("puppet")
+        except Errors.InstallError, ie:
+            print ie.__str__()
             raise SatelliteYumException("Satellite repositories did not configure properly. Please check components.")
 
     def manage_localrepo(self, repo, action=1):

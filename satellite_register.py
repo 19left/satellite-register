@@ -1,8 +1,8 @@
-__author__ = 'scott.a.clark'
-
 import satellite
 import subprocess
 from sys import exit
+
+__author__ = 'scott.a.clark'
 
 
 def do_satellite_register():
@@ -15,6 +15,8 @@ def do_satellite_register():
 
     try:
         sy = satellite.SatelliteYum()
+        sy.get_latest("wget")
+
         me = satellite.CurrentHost(clo, cla[0])
         # Check the input with the user before proceeding if they have not used the -y option
         if not clo.yes:
@@ -40,10 +42,11 @@ def do_satellite_register():
         if not clo.skip_register:
             print "Registering system with subscription-manager..."
             me.register()
-            sy.clean_all()
 
         if not clo.skip_install:
             print "Installing Satellite 6 components..."
+            # We're going to start over with a fresh SatelliteYum here because I think it changes after registration
+            sy = satellite.SatelliteYum()
             sy.install_sat6_components()
             subprocess.call("/usr/sbin/katello-package-upload")
 
