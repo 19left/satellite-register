@@ -236,12 +236,6 @@ class SatelliteYum(YumBase):
             else:
                 r.enablePersistent()
 
-    def clean_all(self):
-        self.cleanPackages()
-        self.cleanHeaders()
-        self.cleanMetadata()
-        self.cleanSqlite()
-
 
 class SatelliteYumException(Exception):
     def __init__(self, msg):
@@ -315,8 +309,9 @@ def print_confirmation(host):
 def configure_puppet(master):
     # Update the configuration file
     __file = "/etc/puppet/puppet.conf"
-    pconf = open(__file, 'r+')
+    pconf = open(__file)
     contents = pconf.readlines()
+    pconf.close()
     if not file_find(contents, "ca_server"):
         exactmatch = file_find(contents, "classfile")
         if exactmatch:
@@ -336,11 +331,11 @@ def configure_puppet(master):
         contents.insert(i, "    # Satellite 6 Environment Configuration\n")
         contents.insert(i, "\n")
 
-        pconf.writelines(contents)
-        pconf.close()
+        newpconf = open(__file, 'w')
+        newpconf.writelines(contents)
+        newpconf.close()
         return True
     else:
-        pconf.close()
         print "Puppet has been configured before. Do this manually after script completes."
         return False
 
